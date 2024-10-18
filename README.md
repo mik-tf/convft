@@ -1,4 +1,20 @@
-# ConvFT - File and Text Converter
+<h1> ConvFT - File and Text Converter </h1>
+
+<h2>Table of Contents</h2>
+
+- [Introduction](#introduction)
+- [Repository](#repository)
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [How It Works](#how-it-works)
+- [Notes](#notes)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## Introduction
 
 ConvFT is a simple yet powerful bash script that allows you to convert between files and a single text file representation. It's perfect for backing up file structures, sharing multiple files as a single text file, or reconstructing files from a text representation.
 
