@@ -53,8 +53,7 @@ get_directory_tree() {
         echo -e "${RED}Error: tree command not found. Please install it first.${NC}"
         exit 1
     fi
-    # Remove the -L 2 flag to show full directory structure
-    tree -a -I '.git|.DS_Store' --noreport
+    tree -a -L 1 -I '.git|.DS_Store' --noreport
 }
 
 # Function to get subdirectories
