@@ -21,84 +21,44 @@ help() {
     echo -e "${BOLD}${BLUE}       ConvFT: File-Text Conversion     ${NC}"
     echo -e "${BOLD}${BLUE}=========================================${NC}"
     echo
-    echo -e "${CYAN}A powerful CLI tool for converting between file structures${NC}"
-    echo -e "${CYAN}and single text file representations. Ideal for backup,${NC}"
+    echo -e "${CYAN}A simple CLI tool for converting between file structures${NC}"
+    echo -e "${CYAN}and single text file representations. Ideal for AI work, backup,${NC}"
     echo -e "${CYAN}sharing, and reconstructing complex directory hierarchies.${NC}"
     echo
-    echo -e "${MAGENTA}Repository:${NC} ${BOLD}https://github.com/Mik-TF/convft${NC}"
+    echo -e "${MAGENTA}Repository:${NC} ${BOLD}https://github.com/mik-tf/convft${NC}"
+    echo -e "${MAGENTA}License:${NC}    ${BOLD}Apache 2.0${NC}"
     echo
-    echo -e "${YELLOW}Usage:${NC} ${BOLD}convft [OPTION]${NC}"
+    echo -e "${YELLOW}Usage:${NC} ${BOLD}convft [COMMAND] [OPTIONS]${NC}"
     echo
-    echo -e "${GREEN}Options:${NC}"
+    echo -e "${GREEN}Commands:${NC}"
     echo -e "  ${BOLD}ft${NC}         Convert files to text"
-    echo -e "  ${BOLD}ftd${NC}        Convert files to text with directory selection"
     echo -e "  ${BOLD}tf${NC}         Convert text to files"
     echo -e "  ${BOLD}install${NC}    Install ConvFT (requires sudo)"
     echo -e "  ${BOLD}uninstall${NC}  Uninstall ConvFT (requires sudo)"
     echo -e "  ${BOLD}help${NC}       Display this help message"
     echo
-    echo -e "${YELLOW}Examples:${NC}"
-    echo -e "  ${BOLD}convft ft${NC}              # Convert current directory to 'all_files_text.txt'"
-    echo -e "  ${BOLD}convft ftd${NC}             # Convert selected directories to 'all_files_text.txt'"
-    echo -e "  ${BOLD}convft tf${NC}              # Reconstruct files from 'all_files_text.txt'"
-    echo -e "  ${BOLD}sudo bash convft.sh install${NC}    # Install ConvFT system-wide"
-    echo -e "  ${BOLD}sudo convft uninstall${NC}  # Remove ConvFT from the system"
+    echo -e "${GREEN}Options for ft:${NC}"
+    echo -e "  ${BOLD}-i --include [PATH...]${NC}   Include specific directories or files (defaults to current directory)"
+    echo -e "  ${BOLD}-e --exclude [PATH...]${NC}   Exclude specific directories or files"
+    echo -e "  ${BOLD}-t --tree-depth [DEPTH]${NC}  Set directory tree depth (default 1)"
     echo
-    echo -e "${BLUE}=========================================${NC}"
+    echo -e "${YELLOW}Examples:${NC}"
+    echo -e "  ${BOLD}convft ft -i /my/project -t 3 -e /my/project/temp /my/project/build.sh${NC}"
+    echo -e "  ${BOLD}convft ft -i /path/to/file1.txt /path/to/file2.c${NC}"
+    echo -e "  ${BOLD}convft tf${NC}"
+    echo -e "  ${BOLD}sudo convft install${NC}"
+    echo -e "  ${BOLD}sudo convft uninstall${NC}"
+    echo
 }
 
 # Function to get directory tree
 get_directory_tree() {
+    local depth=$1
     if ! command -v tree &> /dev/null; then
         echo -e "${RED}Error: tree command not found. Please install it first.${NC}"
         exit 1
     fi
-    tree -a -L 1 -I '.git|.DS_Store' --noreport
-}
-
-# Function to get subdirectories
-get_subdirectories() {
-    local dirs=()
-    
-    # Get all subdirectories except .git
-    while IFS= read -r dir; do
-        if [[ -d "$dir" && ! "$dir" =~ ^\. && "$dir" != ".git/" ]]; then
-            dirs+=("$dir")
-        fi
-    done < <(ls -d */)
-
-    if [ ${#dirs[@]} -eq 0 ]; then
-        echo -e "${RED}No subdirectories found in current directory${NC}"
-        exit 1
-    fi
-
-    echo -e "${YELLOW}\nAvailable subdirectories:${NC}"
-    for i in "${!dirs[@]}"; do
-        echo "$((i+1)). ${dirs[$i]}"
-    done
-
-    echo -e "${CYAN}\nEnter directory numbers to include (comma-separated, e.g., \"1,3,4\"), or \"all\" for all directories:${NC}"
-    read -p "> " input
-
-    local selected_dirs=()
-    if [[ "${input,,}" == "all" ]]; then
-        selected_dirs=("${dirs[@]}")
-    else
-        IFS=',' read -ra numbers <<< "$input"
-        for num in "${numbers[@]}"; do
-            idx=$((num-1))
-            if [[ $idx -ge 0 && $idx -lt ${#dirs[@]} ]]; then
-                selected_dirs+=("${dirs[$idx]}")
-            fi
-        done
-    fi
-
-    if [ ${#selected_dirs[@]} -eq 0 ]; then
-        echo -e "${RED}No valid directories selected${NC}"
-        exit 1
-    fi
-
-    printf "%s\n" "${selected_dirs[@]}"
+    tree -a -L "$depth" -I '.git|.DS_Store' --noreport
 }
 
 # Function to process a single file
@@ -124,7 +84,40 @@ process_file() {
 # Function to convert files to text
 file_to_text() {
     local output_file="all_files_text.txt"
-    
+    local dirs=(".")
+    local depth=1
+    local exclude=(".git")  # Automatically exclude .git
+
+    # Parse options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -i|--include)
+                shift
+                dirs=()
+                while [[ $# -gt 0 && ! "$1" =~ ^- ]]; do
+                    dirs+=("$1")
+                    shift
+                done
+                ;;
+            -e|--exclude)
+                shift
+                while [[ $# -gt 0 && ! "$1" =~ ^- ]]; do
+                    exclude+=("$1")
+                    shift
+                done
+                ;;
+            -t|--tree-depth)
+                shift
+                depth="$1"
+                shift
+                ;;
+            *)
+                echo -e "${RED}Unknown option: $1${NC}"
+                exit 1
+                ;;
+        esac
+    done
+
     echo -e "${YELLOW}Starting conversion of files to text...${NC}"
     
     # Clear the output file if it exists
@@ -132,50 +125,27 @@ file_to_text() {
     
     # Add directory tree at the beginning
     echo "DirectoryTree:" >> "$output_file"
-    get_directory_tree >> "$output_file"
+    get_directory_tree "$depth" >> "$output_file"
     echo "EndDirectoryTree" >> "$output_file"
     echo >> "$output_file"
     
-    # Process files excluding .git directory
-    find . -type f -not -path '*/\.git/*' | while read -r file; do
-        # Skip the output file itself and the script file
-        if [[ "$file" != "./$output_file" && "$file" != "$SCRIPT_PATH" ]]; then
-            process_file "$file" "$output_file"
-        fi
-    done
-    
-    echo -e "${GREEN}Conversion completed. Output saved to ${BOLD}$output_file${NC}"
-}
-
-# Function to convert files to text with directory selection
-file_to_text_with_dirs() {
-    local output_file="all_files_text.txt"
-    
-    echo -e "${YELLOW}Starting directory selection process...${NC}"
-    
-    # Get selected directories
-    mapfile -t selected_dirs < <(get_subdirectories)
-    
-    echo -e "${YELLOW}\nStarting conversion of files to text in selected directories...${NC}"
-    
-    # Clear the output file if it exists
-    > "$output_file"
-    
-    # Add directory tree at the beginning
-    echo "DirectoryTree:" >> "$output_file"
-    get_directory_tree >> "$output_file"
-    echo "EndDirectoryTree" >> "$output_file"
-    echo >> "$output_file"
-    
-    # Process files in selected directories excluding .git
-    for dir in "${selected_dirs[@]}"; do
-        echo -e "${CYAN}\nProcessing directory: ${BOLD}$dir${NC}"
-        find "$dir" -type f -not -path '*/\.git/*' | while read -r file; do
-            process_file "$file" "$output_file"
+    # Process files excluding excluded paths
+    for dir in "${dirs[@]}"; do
+        find "$dir" -type f | while read -r file; do
+            local skip=0
+            for excluded in "${exclude[@]}"; do
+                if [[ "$file" == *"$excluded"* ]]; then
+                    skip=1
+                    break
+                fi
+            done
+            if [[ $skip -eq 0 ]]; then
+                process_file "$file" "$output_file"
+            fi
         done
     done
     
-    echo -e "${GREEN}\nConversion completed. Output saved to ${BOLD}$output_file${NC}"
+    echo -e "${GREEN}Conversion completed. Output saved to ${BOLD}$output_file${NC}"
 }
 
 # Function to convert text back to files
@@ -259,10 +229,8 @@ fi
 
 case "$1" in
     "ft")
-        file_to_text
-        ;;
-    "ftd")
-        file_to_text_with_dirs
+        shift
+        file_to_text "$@"
         ;;
     "tf")
         text_to_file
@@ -281,3 +249,4 @@ case "$1" in
         exit 1
         ;;
 esac
+
