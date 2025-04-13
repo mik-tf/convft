@@ -61,13 +61,70 @@ get_directory_tree() {
     tree -a -L "$depth" -I '.git|.DS_Store' --noreport
 }
 
+# Function to check if a file should be ignored based on .gitignore patterns
+is_ignored_by_gitignore() {
+    local file_path="$1"
+    local dir_path=$(dirname "$file_path")
+    local gitignore_path=""
+
+    # Look for a .gitignore file, going up the directory tree if needed
+    while [[ "$dir_path" != "/" && "$dir_path" != "." ]]; do
+        if [[ -f "$dir_path/.gitignore" ]]; then
+            gitignore_path="$dir_path/.gitignore"
+            break
+        fi
+        dir_path=$(dirname "$dir_path")
+    done
+
+    # If we're in the root directory, check for .gitignore there too
+    if [[ "$dir_path" == "/" || "$dir_path" == "." ]] && [[ -f ".gitignore" ]]; then
+        gitignore_path=".gitignore"
+    fi
+
+    # If a .gitignore file was found, use git's functionality if available
+    if [[ -n "$gitignore_path" ]]; then
+        if command -v git &> /dev/null; then
+            if git check-ignore -q "$file_path"; then
+                return 0  # File should be ignored
+            fi
+        else
+            # Basic implementation if git is not available
+            while IFS= read -r pattern; do
+                # Skip empty lines and comments
+                [[ -z "$pattern" || "$pattern" == \#* ]] && continue
+
+                # Handle negation patterns (!) - these explicitly include files
+                if [[ "$pattern" == !* ]]; then
+                    pattern="${pattern:1}"  # Remove the ! character
+                    if [[ "$file_path" == *"$pattern"* ]]; then
+                        return 1  # File should NOT be ignored
+                    fi
+                else
+                    # Regular exclusion pattern
+                    if [[ "$file_path" == *"$pattern"* ]]; then
+                        return 0  # File should be ignored
+                    fi
+                fi
+            done < "$gitignore_path"
+        fi
+    fi
+
+    return 1  # File should NOT be ignored (default)
+}
+
 # Function to process a single file
 process_file() {
     local file="$1"
     local output_file="$2"
-    
+
     # Skip the output file itself
     if [[ -f "$file" && "$file" != "./$output_file" && -r "$file" ]]; then
+        # Check if file should be ignored per .gitignore
+        if is_ignored_by_gitignore "$file"; then
+            echo -e "${YELLOW}Skipping ignored file:${NC} $file"
+            return
+        fi
+
         # Check if it's a text file or shell script
         if file "$file" | grep -qE "text|shell script|ASCII|empty"; then
             echo -e "${CYAN}Processing:${NC} $file"
@@ -119,16 +176,16 @@ file_to_text() {
     done
 
     echo -e "${YELLOW}Starting conversion of files to text...${NC}"
-    
+
     # Clear the output file if it exists
     > "$output_file"
-    
+
     # Add directory tree at the beginning
     echo "DirectoryTree:" >> "$output_file"
     get_directory_tree "$depth" >> "$output_file"
     echo "EndDirectoryTree" >> "$output_file"
     echo >> "$output_file"
-    
+
     # Process files excluding excluded paths
     for dir in "${dirs[@]}"; do
         find "$dir" -type f | while read -r file; do
@@ -144,24 +201,24 @@ file_to_text() {
             fi
         done
     done
-    
+
     echo -e "${GREEN}Conversion completed. Output saved to ${BOLD}$output_file${NC}"
 }
 
 # Function to convert text back to files
 text_to_file() {
     local input_file="all_files_text.txt"
-    
+
     if [[ ! -f "$input_file" ]]; then
         echo -e "${RED}Error: $input_file not found${NC}"
         exit 1
     fi
-    
+
     echo -e "${YELLOW}Starting conversion of text to files...${NC}"
-    
+
     local in_tree_section=false
     local current_file=""
-    
+
     while IFS= read -r line; do
         if [[ "$line" == "DirectoryTree:" ]]; then
             in_tree_section=true
@@ -174,11 +231,17 @@ text_to_file() {
         if [[ "$in_tree_section" == true ]]; then
             continue
         fi
-        
+
         if [[ "$line" == "Filepath:"* ]]; then
             current_file="${line#Filepath: }"
             # Skip if the file path contains .git
             if [[ "$current_file" == *".git"* ]]; then
+                current_file=""
+                continue
+            fi
+            # Also check if file should be ignored per .gitignore
+            if is_ignored_by_gitignore "$current_file"; then
+                echo -e "${YELLOW}Skipping ignored file:${NC} $current_file"
                 current_file=""
                 continue
             fi
@@ -189,7 +252,7 @@ text_to_file() {
             echo "$line" >> "$current_file"
         fi
     done < "$input_file"
-    
+
     echo -e "${GREEN}Conversion completed. Files have been recreated.${NC}"
 }
 
@@ -199,10 +262,10 @@ install() {
         echo -e "${RED}Please run the install function with sudo.${NC}"
         exit 1
     fi
-    
+
     cp "$SCRIPT_PATH" /usr/local/bin/convft
     chmod +x /usr/local/bin/convft
-    
+
     echo -e "${GREEN}Installation successful. You can now use 'convft' from any directory.${NC}"
 }
 
@@ -212,7 +275,7 @@ uninstall() {
         echo -e "${RED}Please run the uninstall function with sudo.${NC}"
         exit 1
     fi
-    
+
     if [ -f /usr/local/bin/convft ]; then
         rm /usr/local/bin/convft
         echo -e "${GREEN}ConvFT has been uninstalled successfully.${NC}"
@@ -249,4 +312,3 @@ case "$1" in
         exit 1
         ;;
 esac
-
