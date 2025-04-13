@@ -125,8 +125,18 @@ process_file() {
             return
         fi
 
-        # Check if it's a text file or shell script
-        if file "$file" | grep -qE "text|shell script|ASCII|empty"; then
+        # Check for known text file extensions
+        if [[ "$file" == *.j2 ]] || [[ "$file" == *.template ]] ||
+           [[ "$file" == *.txt ]] || [[ "$file" == *.md ]] ||
+           [[ "$file" == *.yml ]] || [[ "$file" == *.yaml ]] ||
+           [[ "$file" == *.json ]] || [[ "$file" == *.sh ]] ||
+           [[ "$file" == *.py ]] || [[ "$file" == *.js ]] ||
+           [[ "$file" == *.html ]] || [[ "$file" == *.css ]] ||
+           [[ "$file" == *.xml ]] || [[ "$file" == *.conf ]] ||
+           [[ "$file" == *.ini ]] ||
+           # Also check using the file command with expanded patterns
+           file "$file" | grep -qE "text|shell script|ASCII|empty|data|JSON|HTML|XML|document"; then
+
             echo -e "${CYAN}Processing:${NC} $file"
             echo "Filepath: $file" >> "$output_file"
             echo "Content:" >> "$output_file"
