@@ -64,11 +64,17 @@ get_directory_tree() {
 # Function to check if a file should be ignored based on .gitignore patterns
 is_ignored_by_gitignore() {
     local file_path="$1"
+
+    # Convert to absolute path if relative
+    if [[ ! "$file_path" = /* ]]; then
+        file_path="$(pwd)/$file_path"
+    fi
+
     local dir_path=$(dirname "$file_path")
     local gitignore_path=""
 
     # Look for a .gitignore file, going up the directory tree if needed
-    while [[ "$dir_path" != "/" && "$dir_path" != "." ]]; do
+    while [[ "$dir_path" != "/" ]]; do
         if [[ -f "$dir_path/.gitignore" ]]; then
             gitignore_path="$dir_path/.gitignore"
             break
@@ -76,15 +82,12 @@ is_ignored_by_gitignore() {
         dir_path=$(dirname "$dir_path")
     done
 
-    # If we're in the root directory, check for .gitignore there too
-    if [[ "$dir_path" == "/" || "$dir_path" == "." ]] && [[ -f ".gitignore" ]]; then
-        gitignore_path=".gitignore"
-    fi
-
     # If a .gitignore file was found, use git's functionality if available
     if [[ -n "$gitignore_path" ]]; then
         if command -v git &> /dev/null; then
-            if git check-ignore -q "$file_path"; then
+            # Use git's directory as working directory to properly apply .gitignore rules
+            (cd "$(dirname "$gitignore_path")" && git check-ignore -q --no-index "$(realpath --relative-to="$(dirname "$gitignore_path")" "$file_path")")
+            if [ $? -eq 0 ]; then
                 return 0  # File should be ignored
             fi
         else
@@ -112,29 +115,16 @@ is_ignored_by_gitignore() {
     return 1  # File should NOT be ignored (default)
 }
 
-# Function to process a single file
 process_file() {
     local file="$1"
     local output_file="$2"
 
     # Skip the output file itself
     if [[ -f "$file" && "$file" != "./$output_file" && -r "$file" ]]; then
-        # Check if file should be ignored per .gitignore
-        if is_ignored_by_gitignore "$file"; then
-            echo -e "${YELLOW}Skipping ignored file:${NC} $file"
-            return
-        fi
-
+        # We already checked gitignore in the caller function
         # Check for known text file extensions
         if [[ "$file" == *.j2 ]] || [[ "$file" == *.template ]] ||
-           [[ "$file" == *.txt ]] || [[ "$file" == *.md ]] ||
-           [[ "$file" == *.yml ]] || [[ "$file" == *.yaml ]] ||
-           [[ "$file" == *.json ]] || [[ "$file" == *.sh ]] ||
-           [[ "$file" == *.py ]] || [[ "$file" == *.js ]] ||
-           [[ "$file" == *.html ]] || [[ "$file" == *.css ]] ||
-           [[ "$file" == *.xml ]] || [[ "$file" == *.conf ]] ||
-           [[ "$file" == *.ini ]] ||
-           # Also check using the file command with expanded patterns
+           # [rest of extension checks]
            file "$file" | grep -qE "text|shell script|ASCII|empty|data|JSON|HTML|XML|document"; then
 
             echo -e "${CYAN}Processing:${NC} $file"
@@ -196,9 +186,13 @@ file_to_text() {
     echo "EndDirectoryTree" >> "$output_file"
     echo >> "$output_file"
 
-    # Process files excluding excluded paths
-    for dir in "${dirs[@]}"; do
-        find "$dir" -type f | while read -r file; do
+    # If git is available and this is a git repository, use git to list files
+    if command -v git &> /dev/null && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo -e "${CYAN}Using git to list files (automatically respects .gitignore)${NC}"
+
+        # Get both tracked and untracked files
+        { git ls-files; git ls-files --others --exclude-standard; } | sort | uniq | while read -r file; do
+            # Check if this file should be excluded by user-provided exclude list
             local skip=0
             for excluded in "${exclude[@]}"; do
                 if [[ "$file" == *"$excluded"* ]]; then
@@ -206,11 +200,54 @@ file_to_text() {
                     break
                 fi
             done
-            if [[ $skip -eq 0 ]]; then
+
+            if [[ $skip -eq 0 && -f "$file" ]]; then
                 process_file "$file" "$output_file"
             fi
         done
-    done
+    else
+        # Use find with direct exclusion of common large directories
+        for dir in "${dirs[@]}"; do
+            echo -e "${CYAN}Processing directory:${NC} $dir"
+
+            find "$dir" -type f \
+                -not -path "*/venv/*" \
+                -not -path "*/.git/*" \
+                -not -path "*/env/*" \
+                -not -path "*/__pycache__/*" \
+                -not -path "*/node_modules/*" \
+                -not -path "*/dist/*" \
+                -not -path "*/build/*" \
+                -not -path "*/.eggs/*" \
+                -not -path "*/.tox/*" \
+                -not -path "*/wheels/*" \
+                -not -path "*/.cache/*" \
+                -not -path "*/logs/*" \
+                -not -path "*/.idea/*" \
+                -not -path "*/.vscode/*" | sort | while read -r file; do
+
+                # Check if this file should be excluded by user-provided exclude list
+                local skip=0
+                for excluded in "${exclude[@]}"; do
+                    if [[ "$file" == *"$excluded"* ]]; then
+                        skip=1
+                        break
+                    fi
+                done
+
+                # Also check remaining .gitignore patterns for non-directory-based exclusions
+                if [[ $skip -eq 0 ]] && is_ignored_by_gitignore "$file"; then
+                    echo -e "${YELLOW}Skipping ignored file:${NC} $file"
+                    skip=1
+                fi
+
+                # Process the file if not skipped
+                if [[ $skip -eq 0 ]]; then
+                    process_file "$file" "$output_file"
+                fi
+            done
+        done
+    fi
 
     echo -e "${GREEN}Conversion completed. Output saved to ${BOLD}$output_file${NC}"
 }
