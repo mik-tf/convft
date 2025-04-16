@@ -121,12 +121,15 @@ process_file() {
 
     # Skip the output file itself
     if [[ -f "$file" && "$file" != "./$output_file" && -r "$file" ]]; then
-        # We already checked gitignore in the caller function
-        # Check for known text file extensions
-        if [[ "$file" == *.j2 ]] || [[ "$file" == *.template ]] ||
-           # [rest of extension checks]
-           file "$file" | grep -qE "text|shell script|ASCII|empty|data|JSON|HTML|XML|document"; then
+        # Explicitly skip known binary extensions
+        if [[ "$file" =~ \.(png|jpg|jpeg|gif|bmp|ico|pdf|zip|gz|tar|rar|7z|bin|exe|dll|so|dylib|class|pyc|o|a|lib|obj|iso|dmg|svg|psd|ttf|woff|woff2|eot|jar|war|ear|docx|xlsx|pptx|odt|ods|odp|db|sqlite|mdb|mp3|mp4|avi|mov|mkv|flv|webm)$ ]]; then
+            echo -e "${YELLOW}Skipping binary file by extension:${NC} $file"
+            return
+        fi
 
+        # Use the file command as an additional check
+        if file "$file" | grep -qE "text|shell script|ASCII|empty|JSON|HTML|XML|document"; then
+            # Only process files that are explicitly identified as text
             echo -e "${CYAN}Processing:${NC} $file"
             echo "Filepath: $file" >> "$output_file"
             echo "Content:" >> "$output_file"
